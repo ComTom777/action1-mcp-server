@@ -1,0 +1,31 @@
+[project]
+name = "action1-mcp-server"
+version = "0.1.0"
+description = "Unofficial MCP server for the Action1 RMM API"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ComTom777" }]
+dependencies = [
+    "mcp>=2.3,<3",
+    "action1-client @ git+https://github.com/ComTom777/action1-python-client.git",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "respx>=0.21"]
+
+[project.scripts]
+action1-mcp = "action1_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/action1_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
