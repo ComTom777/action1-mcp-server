@@ -12,6 +12,9 @@ built on [action1-python-client](https://github.com/ComTom777/action1-python-cli
   the Action1 data source + custom report, `requery_report` to have agents collect now, then
   `list_report_data` to read results, e.g. "check my Windows servers against CIS Level 1 and
   summarize what fails". The workflow is described to the model in the server's instructions.
+- **Run scripts**: `run_script` runs PowerShell as SYSTEM on chosen endpoints right now and returns
+  each one's output (capped at ~10,000 chars by Action1; never reboots). Good for one-off
+  diagnostics or fetching files a data source wrote, e.g. the full CIS v8 details JSON.
 - **Change** only report-related things (`WRITE_TOOLS`): requery, delete a custom report or data
   source. No endpoint/user/org deletes. MCP clients ask before calling non-read-only tools.
 

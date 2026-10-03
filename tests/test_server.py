@@ -11,7 +11,7 @@ BASE = "https://app.action1.com/api/3.0"
 
 def test_all_tools_registered():
     tools = asyncio.run(build_server(Action1Client("id", "secret")).list_tools())
-    assert {t.name for t in tools} == set(TOOLS) | set(WRITE_TOOLS) | {"publish_check"}
+    assert {t.name for t in tools} == set(TOOLS) | set(WRITE_TOOLS) | {"publish_check", "run_script"}
 
 
 @respx.mock
@@ -36,3 +36,17 @@ def test_api_error_reaches_model():
         assert "Access denied" in str(exc)
     else:
         raise AssertionError("expected a tool error")
+
+
+@respx.mock
+def test_run_script_returns_output():
+    respx.post(f"{BASE}/oauth2/token").respond(json={"access_token": "t", "expires_in": 3600})
+    respx.post(f"{BASE}/automations/instances/org1").respond(json={"id": "inst1"})
+    respx.get(f"{BASE}/automations/instances/org1/inst1/endpoint-results").respond(
+        json={"items": [{"id": "ep1", "endpoint_name": "pc", "status": "Success", "description": "hello"}]}
+    )
+    server = build_server(Action1Client("id", "secret"))
+    result = asyncio.run(
+        server.call_tool("run_script", {"org_id": "org1", "endpoint_ids": ["ep1"], "script": "echo hello"})
+    )
+    assert "hello" in str(result) and "Success" in str(result)

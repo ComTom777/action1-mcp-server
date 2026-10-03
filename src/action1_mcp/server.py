@@ -1,4 +1,4 @@
-"""MCP server exposing a read-only slice of the Action1 API via ``action1_client``.
+"""MCP server for the Action1 API via ``action1_client``: read tools, custom reports, run scripts.
 
 Configure via environment variables:
     ACTION1_CLIENT_ID     e.g. api-key-xxxx@action1.com
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 import os
+import time
 
 from action1_client import Action1Client, Action1Error
 from mcp.server.mcpserver import MCPServer
@@ -31,6 +32,11 @@ To build a custom report (e.g. a compliance check against a benchmark such as CI
    asynchronously - offline endpoints won't appear; online ones usually within a few minutes.
 4. list_report_data(org_id, report_id) for rows, list_report_errors for script failures.
    Fix the script and call publish_check again with data_source_id to update in place.
+   Long details belong in a file the data source writes on the endpoint; read it with run_script.
+
+run_script(org_id, endpoint_ids, script) runs PowerShell as SYSTEM on online endpoints right now
+and returns each endpoint's output (capped at ~10,000 chars - summarize in the script if needed).
+Use it for one-off diagnostics or to fetch files; use a data source for recurring reports.
 """
 
 # Client method name -> tool description.
@@ -113,6 +119,34 @@ def build_server(client: Action1Client) -> MCPServer:
         return result
 
     mcp.add_tool(publish_check, annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
+
+    @_expose_errors
+    def run_script(org_id: str, endpoint_ids: list[str], script: str, wait_seconds: int = 120) -> dict:
+        """Run a PowerShell script now, as SYSTEM, on the given endpoints (ids from list_endpoints)
+        and wait up to wait_seconds for results. Returns each endpoint's status and output
+        (stdout, capped at ~10,000 chars by Action1). Never reboots. Offline endpoints stay
+        pending - check later with list_automation_instance_endpoint_results(instance_id)."""
+        instance_id = client.run_script(org_id, endpoint_ids, script, name="MCP run_script")["id"]
+        deadline = time.monotonic() + max(0, min(wait_seconds, 600))
+        while True:
+            results = client.list_automation_instance_endpoint_results(org_id, instance_id)
+            done = len(results) >= len(endpoint_ids) and all(
+                r.get("status") not in ("Pending", "Running", "Waiting") for r in results
+            )
+            if done or time.monotonic() >= deadline:
+                break
+            time.sleep(5)
+        return {
+            "instance_id": instance_id,
+            "finished": done,
+            "results": [
+                {"endpoint_id": r.get("id"), "endpoint_name": r.get("endpoint_name"),
+                 "status": r.get("status"), "output": r.get("description")}
+                for r in results
+            ],
+        }
+
+    mcp.add_tool(run_script, annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
     return mcp
 
 
