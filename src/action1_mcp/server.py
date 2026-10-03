@@ -22,6 +22,7 @@ To build a custom report (e.g. a compliance check against a benchmark such as CI
 1. Write a PowerShell script that runs on each Windows endpoint and ends with ONE bare
    [PSCustomObject] - each property becomes a column. The object MUST also have
    'A1_Key' = 'none' (Action1's row key; one row per endpoint) - don't list A1_Key in columns.
+   Max 30 columns (more = rows silently dropped, no error). Values are truncated at 255 chars.
    Data sources run only on Windows agents. Wrap each check in try/catch so one
    failure doesn't blank the row. Look at existing scripts with list_data_sources/get_data_source.
 2. publish_check(name, script, columns, report_name). columns = the object's property names
