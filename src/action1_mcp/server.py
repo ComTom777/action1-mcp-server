@@ -9,6 +9,7 @@ Configure via environment variables:
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 import time
 
@@ -92,12 +93,70 @@ def _expose_errors(fn):
     return wrapper
 
 
+class _OnePage:
+    """Stands in for the client while one list method runs: ``paginate`` fetches a single page
+    (with Action1's server-side ``filter``) instead of walking every page. A tenant can have
+    thousands of CVEs - 63 requests, ~75 s and 3 MB of JSON for the full list."""
+
+    def __init__(self, client: Action1Client, contains: str, offset: int, limit: int):
+        self._client = client
+        self._params = {"from": offset, "limit": limit, **({"filter": contains} if contains else {})}
+        self.total: int | None = None
+        self.has_more = False
+
+    def __getattr__(self, name):
+        return getattr(self._client, name)
+
+    def paginate(self, path, *, params=None):
+        page = self._client.get(path, params={**(params or {}), **self._params})
+        page = page if isinstance(page, dict) else {}
+        items = page.get("items", [])
+        if page.get("total_items") is not None:
+            self.total = int(page["total_items"])
+        self.has_more = bool(page.get("next_page")) or (
+            self.total is not None and self._params["from"] + len(items) < self.total
+        )
+        return iter(items)
+
+
+def _paged(client: Action1Client, name: str):
+    """Expose a list-returning client method as one page: adds ``contains``/``offset``/``limit``
+    and returns ``{total, offset, has_more, items}``."""
+    method = getattr(type(client), name)
+    sig = inspect.signature(getattr(client, name), eval_str=True)
+
+    @functools.wraps(method)
+    def wrapper(*args, contains: str = "", offset: int = 0, limit: int = 20, **kwargs):
+        proxy = _OnePage(client, contains, max(offset, 0), min(max(limit, 1), 200))
+        items = method(proxy, *args, **kwargs)
+        return {"total": proxy.total, "offset": offset, "has_more": proxy.has_more, "items": items}
+
+    extra = [
+        inspect.Parameter("contains", inspect.Parameter.KEYWORD_ONLY, default="", annotation=str),
+        inspect.Parameter("offset", inspect.Parameter.KEYWORD_ONLY, default=0, annotation=int),
+        inspect.Parameter("limit", inspect.Parameter.KEYWORD_ONLY, default=20, annotation=int),
+    ]
+    wrapper.__signature__ = sig.replace(parameters=[*sig.parameters.values(), *extra], return_annotation=dict)
+    return wrapper
+
+
+_PAGING_NOTE = (
+    " Returns one page {total, offset, has_more, items} (limit default 20, max 200). `contains` is"
+    " Action1's server-side text filter on the items' own fields (e.g. CVE id or product name for"
+    " vulnerabilities) - check `total` before paging through everything."
+)
+
+
 def build_server(client: Action1Client) -> MCPServer:
     mcp = MCPServer("action1", instructions=INSTRUCTIONS)
     read_only = ToolAnnotations(readOnlyHint=True)
     writes = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
     for name, description in TOOLS.items():
-        mcp.add_tool(_expose_errors(getattr(client, name)), name=name, description=description, annotations=read_only)
+        fn = getattr(client, name)
+        sig = inspect.signature(fn, eval_str=True)
+        if sig.return_annotation == list[dict] and "limit" not in sig.parameters:
+            fn, description = _paged(client, name), description + _PAGING_NOTE
+        mcp.add_tool(_expose_errors(fn), name=name, description=description, annotations=read_only)
     for name, description in WRITE_TOOLS.items():
         mcp.add_tool(_expose_errors(getattr(client, name)), name=name, description=description, annotations=writes)
 

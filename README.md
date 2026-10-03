@@ -8,6 +8,8 @@ built on [action1-python-client](https://github.com/ComTom777/action1-python-cli
 
 - **Read**: organizations, endpoints, groups, missing updates, vulnerabilities, automations,
   reports, users, roles, data sources (`TOOLS` in `src/action1_mcp/server.py`).
+  List tools return one page (`offset`/`limit`, default 20) plus `total`, with Action1's
+  server-side text filter (`contains`), so a tenant with thousands of CVEs stays fast and small.
 - **Build custom reports**: the model writes a PowerShell check, calls `publish_check` to create
   the Action1 data source + custom report, `requery_report` to have agents collect now, then
   `list_report_data` to read results, e.g. "check my Windows servers against CIS Level 1 and

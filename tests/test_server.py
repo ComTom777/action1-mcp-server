@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import respx
@@ -50,3 +51,20 @@ def test_run_script_returns_output():
         server.call_tool("run_script", {"org_id": "org1", "endpoint_ids": ["ep1"], "script": "echo hello"})
     )
     assert "hello" in str(result) and "Success" in str(result)
+
+
+@respx.mock
+def test_list_tools_fetch_one_page_with_server_side_filter():
+    respx.post(f"{BASE}/oauth2/token").respond(json={"access_token": "t", "expires_in": 3600})
+    route = respx.get(f"{BASE}/vulnerabilities/org1").respond(
+        json={"items": [{"cve_id": "CVE-2026-1"}], "total_items": "3104"}
+    )
+    server = build_server(Action1Client("id", "secret"))
+
+    page = json.loads(asyncio.run(server.call_tool(
+        "list_vulnerabilities", {"org_id": "org1", "contains": "chrome", "offset": 100, "limit": 10}
+    )).content[0].text)
+
+    assert route.call_count == 1  # not 300+ pages
+    assert dict(route.calls.last.request.url.params) == {"from": "100", "limit": "10", "filter": "chrome"}
+    assert page == {"total": 3104, "offset": 100, "has_more": True, "items": [{"cve_id": "CVE-2026-1"}]}
