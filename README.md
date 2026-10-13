@@ -70,7 +70,7 @@ claude mcp add action1 \
 }
 ```
 
-`ACTION1_REGION` is `north_america` (default), `north_america_2`, `europe`, or `australia`.
+`ACTION1_REGION` is `north_america` (default), `north_america_2`, `europe`, `uk`, or `australia`.
 
 ## Adding a tool
 

@@ -3,7 +3,7 @@
 Configure via environment variables:
     ACTION1_CLIENT_ID     e.g. api-key-xxxx@action1.com
     ACTION1_CLIENT_SECRET
-    ACTION1_REGION        north_america | europe | australia (default: north_america)
+    ACTION1_REGION        north_america | north_america_2 | europe | uk | australia (default: north_america)
 """
 
 from __future__ import annotations
