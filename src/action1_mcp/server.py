@@ -38,10 +38,16 @@ To build a custom report (e.g. a compliance check against a benchmark such as CI
 run_script(org_id, endpoint_ids, script) runs PowerShell as SYSTEM on online endpoints right now
 and returns each endpoint's output (capped at ~10,000 chars - summarize in the script if needed).
 Use it for one-off diagnostics or to fetch files; use a data source for recurring reports.
+
+To patch: find what's missing with list_missing_updates (or get_endpoint_missing_updates /
+list_update_missing_endpoints), then deploy_updates(org_id, endpoint_ids, packages) where packages
+maps each item's id to its versions[].version. Show the user the exact packages and endpoints
+before calling it. It never reboots unless reboot=true. Running deployments can be cancelled
+with stop_automation_instance.
 """
 
 # Client method name -> tool description.
-# ponytail: endpoint/user/org deletes, update approvals etc. left out; add when needed.
+# ponytail: endpoint/user/org deletes, update approval settings etc. left out; add when needed.
 TOOLS = {
     "list_organizations": "List all organizations. Call this first to get the org_id other tools need.",
     "search": "Full-text search across endpoints, software, etc. in an organization.",
@@ -76,6 +82,7 @@ WRITE_TOOLS = {
     "requery_report": "Ask agents to re-run the report's data source script now.",
     "delete_custom_report": "Delete a custom report.",
     "delete_data_source": "Delete a data source (delete reports that use it first).",
+    "stop_automation_instance": "Stop a running automation (e.g. a deploy_updates or run_script run).",
 }
 
 
@@ -179,17 +186,11 @@ def build_server(client: Action1Client) -> MCPServer:
 
     mcp.add_tool(publish_check, annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
 
-    @_expose_errors
-    def run_script(org_id: str, endpoint_ids: list[str], script: str, wait_seconds: int = 120) -> dict:
-        """Run a PowerShell script now, as SYSTEM, on the given endpoints (ids from list_endpoints)
-        and wait up to wait_seconds for results. Returns each endpoint's status and output
-        (stdout, capped at ~10,000 chars by Action1). Never reboots. Offline endpoints stay
-        pending - check later with list_automation_instance_endpoint_results(instance_id)."""
-        instance_id = client.run_script(org_id, endpoint_ids, script, name="MCP run_script")["id"]
+    def wait(org_id: str, instance_id: str, endpoints: int, wait_seconds: int) -> dict:
         deadline = time.monotonic() + max(0, min(wait_seconds, 600))
         while True:
             results = client.list_automation_instance_endpoint_results(org_id, instance_id)
-            done = len(results) >= len(endpoint_ids) and all(
+            done = len(results) >= endpoints and all(
                 r.get("status") not in ("Pending", "Running", "Waiting") for r in results
             )
             if done or time.monotonic() >= deadline:
@@ -205,7 +206,33 @@ def build_server(client: Action1Client) -> MCPServer:
             ],
         }
 
+    @_expose_errors
+    def run_script(org_id: str, endpoint_ids: list[str], script: str, wait_seconds: int = 120) -> dict:
+        """Run a PowerShell script now, as SYSTEM, on the given endpoints (ids from list_endpoints)
+        and wait up to wait_seconds for results. Returns each endpoint's status and output
+        (stdout, capped at ~10,000 chars by Action1). Never reboots. Offline endpoints stay
+        pending - check later with list_automation_instance_endpoint_results(instance_id)."""
+        instance_id = client.run_script(org_id, endpoint_ids, script, name="MCP run_script")["id"]
+        return wait(org_id, instance_id, len(endpoint_ids), wait_seconds)
+
+    @_expose_errors
+    def deploy_updates(
+        org_id: str,
+        endpoint_ids: list[str],
+        packages: dict[str, str],
+        reboot: bool = False,
+        wait_seconds: int = 0,
+    ) -> dict:
+        """Install updates now on the given endpoints. packages maps a package id (the `id` of a
+        list_missing_updates item) to the version to install (its versions[].version). No reboot
+        unless reboot=true (users then get a warning and 4 hours to save work). Installs can take
+        long: by default returns at once with instance_id - check progress later with
+        list_automation_instance_endpoint_results, cancel with stop_automation_instance."""
+        instance_id = client.deploy_updates(org_id, endpoint_ids, packages, reboot=reboot, name="MCP deploy_updates")["id"]
+        return wait(org_id, instance_id, len(endpoint_ids), wait_seconds)
+
     mcp.add_tool(run_script, annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
+    mcp.add_tool(deploy_updates, annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
     return mcp
 
 

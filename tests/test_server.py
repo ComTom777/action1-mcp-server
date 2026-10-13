@@ -12,7 +12,7 @@ BASE = "https://app.action1.com/api/3.0"
 
 def test_all_tools_registered():
     tools = asyncio.run(build_server(Action1Client("id", "secret")).list_tools())
-    assert {t.name for t in tools} == set(TOOLS) | set(WRITE_TOOLS) | {"publish_check", "run_script"}
+    assert {t.name for t in tools} == set(TOOLS) | set(WRITE_TOOLS) | {"publish_check", "run_script", "deploy_updates"}
 
 
 @respx.mock
@@ -68,3 +68,20 @@ def test_list_tools_fetch_one_page_with_server_side_filter():
     assert route.call_count == 1  # not 300+ pages
     assert dict(route.calls.last.request.url.params) == {"from": "100", "limit": "10", "filter": "chrome"}
     assert page == {"total": 3104, "offset": 100, "has_more": True, "items": [{"cve_id": "CVE-2026-1"}]}
+
+
+@respx.mock
+def test_deploy_updates_starts_specified_deploy_without_reboot():
+    respx.post(f"{BASE}/oauth2/token").respond(json={"access_token": "t", "expires_in": 3600})
+    route = respx.post(f"{BASE}/automations/instances/org1").respond(json={"id": "inst1"})
+    respx.get(f"{BASE}/automations/instances/org1/inst1/endpoint-results").respond(
+        json={"items": [{"id": "ep1", "endpoint_name": "pc", "status": "Running"}]}
+    )
+    server = build_server(Action1Client("id", "secret"))
+    result = asyncio.run(server.call_tool(
+        "deploy_updates", {"org_id": "org1", "endpoint_ids": ["ep1"], "packages": {"Chrome_builtin": "130.0.1"}}
+    ))
+    params = json.loads(route.calls.last.request.content)["actions"][0]["params"]
+    assert params["packages"] == [{"Chrome_builtin": "130.0.1"}]
+    assert params["reboot_options"] == {"auto_reboot": "no"}
+    assert "inst1" in str(result) and "Running" in str(result)

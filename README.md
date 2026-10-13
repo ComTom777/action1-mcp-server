@@ -17,8 +17,13 @@ built on [action1-python-client](https://github.com/ComTom777/action1-python-cli
 - **Run scripts**: `run_script` runs PowerShell as SYSTEM on chosen endpoints right now and returns
   each one's output (capped at ~10,000 chars by Action1; never reboots). Good for one-off
   diagnostics or fetching files a data source wrote, e.g. the full CIS v8 details JSON.
+- **Deploy updates**: `deploy_updates` installs chosen missing updates (package id -> version from
+  `list_missing_updates`) on chosen endpoints now. No reboot unless asked; returns the run id at
+  once; track it with `list_automation_instance_endpoint_results`, cancel with
+  `stop_automation_instance`. Pair it with an ITSM MCP server and the model can go from a
+  ticket to a proposed patch run that you approve.
 - **Change** only report-related things (`WRITE_TOOLS`): requery, delete a custom report or data
-  source. No endpoint/user/org deletes. MCP clients ask before calling non-read-only tools.
+  source, stop a running automation. No endpoint/user/org deletes. MCP clients ask before calling non-read-only tools.
 
 Data sources run on online **Windows** agents only (Action1 data sources are PowerShell-only);
 results arrive asynchronously, typically minutes after `requery_report`.
@@ -65,7 +70,7 @@ claude mcp add action1 \
 }
 ```
 
-`ACTION1_REGION` is `north_america` (default), `europe`, or `australia`.
+`ACTION1_REGION` is `north_america` (default), `north_america_2`, `europe`, or `australia`.
 
 ## Adding a tool
 
