@@ -241,6 +241,8 @@ def main() -> None:
         client_id=os.environ["ACTION1_CLIENT_ID"],
         client_secret=os.environ["ACTION1_CLIENT_SECRET"],
         region=os.environ.get("ACTION1_REGION", "north_america"),
+        # missing-updates pages take over a minute on a real tenant; 30 s (the default) times out
+        timeout=300,
     )
     with client:
         build_server(client).run()
